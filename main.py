@@ -93,18 +93,12 @@ def sensor_mesure_send(sensor,target,output):
     timestamp, pid_cpu_usage = mesure_cpu_usage()
 
     cgroup_cpu_usage = {}
-    # cgroup = ''
-    # cgroup_cpu_usage[cgroup] = 0
-    # cgroup_pid_file = open('/sys/fs/cgroup/perf_event/tasks', "r")
-    # cgroup_pid_raw =cgroup_pid_file.read()
-    # pid_list = cgroup_pid_raw.split('\n')
+    global_cpu_usage = 0
 
-    # for process in pid_list:
-    #     if process in pid_cpu_usage.keys() :
-    #         cgroup_cpu_usage[cgroup] += float(pid_cpu_usage[process].replace(",","."))
+    for process in pid_cpu_usage.keys():
+        global_cpu_usage += float(pid_cpu_usage[process].replace(",","."))
 
 
-    # Compute cpu usage of cgroups using cpu usage of pid
     for cgroup in target :
         cgroup_cpu_usage[cgroup] = 0
         cgroup_pid_file = open('/sys/fs/perf_event/' + cgroup + '/tasks', "r")
@@ -114,7 +108,7 @@ def sensor_mesure_send(sensor,target,output):
         for process in pid_list:
             cgroup_cpu_usage[cgroup] += float(pid_cpu_usage[process].replace(",","."))
 
-    report = {'timestamp':str(timestamp), 'sensor':str(sensor), 'target':target, 'usage':cgroup_cpu_usage}
+    report = {'timestamp':str(timestamp), 'sensor':str(sensor), 'target':target, 'usage':cgroup_cpu_usage, "global_cpu_usage":global_cpu_usage}
     report_json = json.dumps(report)
     send_report(output,report_json)
 
@@ -146,8 +140,7 @@ def main():
     logging.captureWarnings(True)
 
 
-    probe = threading.Timer(1/frequency,sensor_mesure_send,[sensor,target,output])
+    probe = threading.Timer(frequency,sensor_mesure_send,[sensor,target,output])
     probe.start()
-
 
 main()
