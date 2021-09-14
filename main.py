@@ -38,6 +38,7 @@ def read_config(config_file):
     """ Read the config from the config_files specified in argument"""
     file_object = open(config_file, "r")
     json_content = file_object.read()
+    file_object.close()
     return json.loads(json_content)
 
 
@@ -61,35 +62,26 @@ def mesure_cpu_usage():
     return timestamp, pid_cpu_usage
 
 
-def send_tcp_report(output,report):
+def send_tcp_report(sock ,report):
     """ Send the json report using TCP"""
 
-    host, port = output['uri'], output['port']
 
-    # Create a socket (SOCK_STREAM means a TCP socket)
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-    try:
-        # Connect to server and send data
-        sock.connect((host, port))
-        sock.sendall(report)
-
-    finally:
-        sock.close()
+    print(report)
+    to_send = report.encode('utf-8')
+    sock.sendall(to_send)
 
 
-
-
-def send_report(output,report):
+def send_report(sock,report):
     """ Send the json report using the output method specified in the config"""
-    if output['type'] == "socket":
-        send_tcp_report(output,report)
-    else :
-        logging.error("Error : only TCP is supported as an output")
+
+    send_tcp_report(sock,report)
 
 
-def sensor_mesure_send(sensor,target,output):
+def sensor_mesure_send(frequency,sensor,target,sock):
     """ Produce the report from scratch and send it"""
+    probe = threading.Timer(frequency/1000,sensor_mesure_send,[frequency,sensor,target,sock])
+    probe.start()
+
     timestamp, pid_cpu_usage = mesure_cpu_usage()
 
     cgroup_cpu_usage = {}
@@ -99,18 +91,22 @@ def sensor_mesure_send(sensor,target,output):
         global_cpu_usage += float(pid_cpu_usage[process].replace(",","."))
 
 
+
     for cgroup in target :
         cgroup_cpu_usage[cgroup] = 0
-        cgroup_pid_file = open('/sys/fs/perf_event/' + cgroup + '/tasks', "r")
+        cgroup_pid_file = open('/sys/fs/cgroup/perf_event/' + cgroup + '/tasks', "r")
         cgroup_pid_raw =cgroup_pid_file.read()
+        cgroup_pid_file.close()
         pid_list = cgroup_pid_raw.split('\n')
 
         for process in pid_list:
+            if process not in pid_cpu_usage.keys():
+                continue
             cgroup_cpu_usage[cgroup] += float(pid_cpu_usage[process].replace(",","."))
 
     report = {'timestamp':str(timestamp), 'sensor':str(sensor), 'target':target, 'usage':cgroup_cpu_usage, "global_cpu_usage":global_cpu_usage}
     report_json = json.dumps(report)
-    send_report(output,report_json)
+    send_report(sock,report_json)
 
 
 def main():
@@ -139,8 +135,11 @@ def main():
     logging.basicConfig(level=logging.WARNING if config['verbose'] else logging.INFO)
     logging.captureWarnings(True)
 
+    host, port = output['uri'], output['port']
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((host, port))
 
-    probe = threading.Timer(frequency,sensor_mesure_send,[sensor,target,output])
-    probe.start()
+    sensor_mesure_send(frequency, sensor,target,sock)
+
 
 main()
