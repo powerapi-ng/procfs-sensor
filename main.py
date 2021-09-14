@@ -66,7 +66,6 @@ def send_tcp_report(sock ,report):
     """ Send the json report using TCP"""
 
 
-    print(report)
     to_send = report.encode('utf-8')
     sock.sendall(to_send)
 
