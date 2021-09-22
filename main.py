@@ -45,7 +45,7 @@ def read_config(config_file):
 
 def mesure_cpu_usage():
     """Mesure the cpu usage of process using pidstat"""
-    timestamp=datetime.fromtimestamp(0)
+    timestamp=datetime.today()
     raw_stat = str(subprocess.check_output(["pidstat"]))
 
     stat = raw_stat.split('\\n')
