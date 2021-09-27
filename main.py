@@ -103,7 +103,9 @@ def sensor_mesure_send(frequency,sensor,target,sock):
                 continue
             cgroup_cpu_usage[cgroup] += float(pid_cpu_usage[process].replace(",","."))
 
-    report = {'timestamp':str(timestamp), 'sensor':str(sensor), 'target':target, 'usage':cgroup_cpu_usage, "global_cpu_usage":global_cpu_usage}
+    tmstp = str(timestamp)
+    tmstp[tmstp.index(' ')] = 'T' # Convert to mongo timestamp format
+    report = {'timestamp':tmstp, 'sensor':str(sensor), 'target':target, 'usage':cgroup_cpu_usage, "global_cpu_usage":global_cpu_usage}
     report_json = json.dumps(report)
     send_report(sock,report_json)
 
