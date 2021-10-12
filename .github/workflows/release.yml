@@ -4,20 +4,22 @@ on:
   push:
     tags:
       - "v*" # Push events to matching v*, i.e. v1.0, v20.15.10
+env:
+  repository: https://github.com/powerapi-ng/procfs-sensor
 jobs:
-  check_version:
-    name: Check sensor version
+  check_release:
+    name: Check release and version correspondance
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.step1.outputs.version }}
+      version: ${{ steps.step2.outputs.version }}
     steps:
       - uses: actions/checkout@v2
-      - name: Check tag and sensor version
-        id: step1
+      - name: Check tag and package version
+        id: step2
         run: |
-          export VERSION=$(echo $GITHUB_REF | sed -e 's/refs\/tags\/v//g')
-          test $VERSION == $(grep Version control | cut -d ' ' -f 2)
-          echo "::set-output name=version::$VERSION"
+          export GIT_TAG=$(echo $GITHUB_REF | sed -e 's/refs\/tags\/v//g')
+          test $GIT_TAG ==  $(grep __version__ procfs_sensor/__init__.py | cut -d \" -f 2)
+          echo "::set-output name=version::$GIT_TAG"
   build_pypi:
     name: Push package on pypi
     runs-on: ubuntu-latest
@@ -41,10 +43,10 @@ jobs:
           python3 setup.py sdist bdist_wheel
       - name: Upload to pypi
         run: twine upload dist/*
-  build_docker_image:
-    name: Build and push docker image
+  build_and_push_to_dockerHub:
+    name: Build and push docker image to DockerHub
     runs-on: ubuntu-latest
-    needs: [check_version, build]
+    needs: check_release
     steps:
       - uses: actions/checkout@v2
       - name: Log in to Docker Hub
@@ -52,55 +54,89 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-      - name: Build and push image
+      - name: Build and push Cpython image
         uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
         with:
           context: .
           push: true
-          file: Dockerfile
-          tags: powerapi/procfs-sensor:latest, powerapi/procfs-sensor:${{needs.check_version.outputs.version}}
-  build_deb:
-    name: Build debian package
-    needs: [check_version, build]
+          file: Dockerfile-cpython
+          tags: powerapi/procfs-sensor:latest, powerapi/procfs-sensor:${{needs.check_release.outputs.version}}
+  build_deb_package:
+    name: Build debian binary package
     runs-on: ubuntu-latest
+    needs: check_release
     container:
-      image: powerapi/procfs-sensor-build:latest
-    env:
-      VERSION: ${{needs.check_version.outputs.version}}
+      image: powerapi/powerapi-build-deb
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/download-artifact@v2
+      - name: Set up Python 3.6
+        uses: actions/setup-python@v2
         with:
-          name: binary
-          path: ~/bin/
-      - name: Create package source
+          python-version: 3.6
+      - name: Cache pip
+        uses: actions/cache@v2
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('setup.cfg') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+            ${{ runner.os }}-
+      - name: Remove tests
         run: |
-          mkdir -p procfs-sensor-$VERSION/DEBIAN
-          cp control procfs-sensor-$VERSION/DEBIAN/
-          mkdir -p procfs-sensor-$VERSION/usr/bin/
-          cp ~/bin/procfs-sensor procfs-sensor-$VERSION/usr/bin/procfs-sensor
-          chmod +x procfs-sensor-$VERSION/usr/bin/procfs-sensor
-          dpkg-deb --build procfs-sensor-$VERSION
+          rm -R ./tests
+          sed -i 's/setup_requires =//g' setup.cfg
+          sed -i 's/pytest-runner >=3.9.2//g' setup.cfg
+          sed -i 's/test = pytest//g' setup.cfg
+          sed -i 's/\[aliases\]//g' setup.cfg
+          sed -i 's/test_suite = tests//g' setup.cfg
+          sed -i 's/tests_require =//g' setup.cfg
+          sed -i 's/pytest >=3.9.2//g' setup.cfg
+          sed -i 's/pytest-asyncio >=0.14.0//g' setup.cfg
+          sed -i 's/requests >=2.0//g' setup.cfg
+      - name: Convert to python3.6 code
+        run: |
+          wget https://raw.githubusercontent.com/powerapi-ng/powerapi-ci-env/main/to_36.sh
+          /bin/bash to_36.sh procfs_sensor
+      - name: Create source package
+        run: |
+          apt install -y python3-setuptools python3-stdeb python3-numpy
+          mkdir package
+          mv LICENSE README.md contributing.md procfs_sensor setup.* package/
+          tar czvf procfs_sensor.tar.gz package
+          py2dsc procfs_sensor.tar.gz
+          sed -i '/Depends: ${misc:Depends}, ${python3:Depends}/a Suggests: python3-libvirt,python3-pymongo,python3-prometheus-client,python3-influxdb' ./deb_dist/procfs-sensor-${{needs.check_release.outputs.version}}/debian/control
+      - name: Build binary package and upload it github release page
+        env:
+          VERSION: ${{needs.check_release.outputs.version}}
+        run: |
+          cd ./deb_dist/procfs-sensor-$VERSION
+          DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage
+          mkdir -p ~/deb
+          cp ../python3-procfs-sensor_$VERSION-1_all.deb ~/deb/
+          ls ~/deb/
       - uses: actions/upload-artifact@v2
         with:
           name: deb_package
-          path: procfs-sensor-${{needs.check_version.outputs.version}}.deb
+          path: ~/deb/
+
   publish_release:
     name: Publish release on github
     runs-on: ubuntu-latest
-    needs: [check_version, build_deb]
-    env:
-      VERSION: ${{needs.check_version.outputs.version}}
+    needs: [check_release, build_deb_package]
     steps:
       - uses: actions/checkout@v2
       - uses: actions/download-artifact@v2
         with:
-          name: binary
-          path: ~/assets/
-      - uses: actions/download-artifact@v2
-        with:
           name: deb_package
-          path: ~/assets/
+          path: ~/deb
+      - name: Create pre-changelog
+        id: pre-changelog
+        uses: TriPSs/conventional-changelog-action@v3
+        with:
+          github-token: ${{ secrets.github_token }}
+          preset: angular
+          output-file: ~/pre-changelog.md
+          release-count: 2
       - name: Create Changelog
         env:
           CHANGELOG_CONTENT: ${{ steps.changelog.outputs.clean_changelog }}
@@ -113,4 +149,5 @@ jobs:
       - name: Create Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create v$VERSION -d -t v$VERSION -F ~/final-changelog.md ~/assets/*
+          VERSION: ${{needs.check_release.outputs.version}}
+        run: gh release create $VERSION -d -t $VERSION -F ~/final-changelog.md ~/deb/*
