@@ -107,9 +107,9 @@ def sensor_mesure_send(sampling_interval, sensor, target, sock):
     send_report(sock, report_json)
 
 
-def main():
-    """Initialize the sensor and run it core function at the frequency required by the config"""
 
+
+if __name__ == "__main__":
     if len(sys.argv) == 1:
         print("Precise config file name: ")
         file_name = input()
@@ -137,6 +137,3 @@ def main():
     sock.connect((host, port))
 
     sensor_mesure_send(sampling_interval, sensor, target, sock)
-
-
-main()
