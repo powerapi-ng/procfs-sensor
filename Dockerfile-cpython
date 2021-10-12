@@ -1,0 +1,6 @@
+FROM powerapi/powerapi:1.0.0
+USER powerapi
+COPY --chown=powerapi . /tmp/procfs-sensor
+RUN pip install --user --no-cache-dir "/tmp/procfs-sensor" && rm -r /tmp/procfs-sensor
+
+ENTRYPOINT ["python3", "-m", "procfs-sensor"]
