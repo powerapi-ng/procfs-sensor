@@ -83,7 +83,7 @@ jobs:
             ${{ runner.os }}-
       - name: Remove tests
         run: |
-          rm -R ./tests
+          rm -R ./tests || echo "Ok"
           sed -i 's/setup_requires =//g' setup.cfg
           sed -i 's/pytest-runner >=3.9.2//g' setup.cfg
           sed -i 's/test = pytest//g' setup.cfg
