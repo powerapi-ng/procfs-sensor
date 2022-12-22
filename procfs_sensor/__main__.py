@@ -79,7 +79,7 @@ def sensor_mesure_send(sampling_interval, sensor, target, sock):
     cgroup_cpu_usage = {}
     global_cpu_usage = 0
 
-    for process, _ in pid_cpu_usage:
+    for process in pid_cpu_usage:
         global_cpu_usage += float(pid_cpu_usage[process].replace(", ", "."))
 
     for cgroup in target:
